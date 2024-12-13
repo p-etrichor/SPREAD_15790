@@ -1,0 +1,181 @@
+Public gCN As New ADODB.Connection
+Public gRS As New ADODB.Recordset
+Public gRS_Imsi As New ADODB.Recordset
+Public m_DBconnect As New KBPDBConnetion.ConnMothod
+
+'도구->참조->Microsoft ActiveX Data Object 2.6 Library
+'도구->참조->KBP DB Connetion
+Sub DBconnect()
+  
+    Dim ret As Long           '접속 Error 여부 판별 변수 ( EX) 0 : 성공, 이외숫자 : 에러번호)
+    Dim Desc As String        '접속 성공시 시스템의 날짜(yyyy-mm-dd)를 저장, 실패시 에러 내용
+       
+    ret = m_DBconnect.MSSQLConnection(gCN, eReal, "KBPDB", eEXCEL, Desc)        'real server
+    'ret = m_DBconnect.MSSQLConnection(gCN, eTest, "KBPDB", ePROGRAM, Desc)        'test server
+        
+    If ret Then     ' ref 가 0 이 아니면 DB 접속 에러임
+        MsgBox "DB접속 Error : " & ret & " : " & Desc, vbCritical
+        End
+    End If
+    
+End Sub
+
+Sub DBdisconnect()
+
+    gCN.Close
+    Set gCN = Nothing
+    
+End Sub
+
+Function Linear_Interp(xVals As Range, yVals As Range, X As Date) As Double
+    Dim fract As Double
+    Dim i As Integer
+    Dim numVals As Integer
+    If xVals.Cells.Count <> yVals.Cells.Count Then
+        Linear_Interp = Err()
+        Exit Function
+    End If
+    numVals = xVals.Cells.Count
+    i = 2
+    While xVals.Cells(i).Value < X And i < numVals
+        i = i + 1
+    
+    Wend
+    If i = 1 And X = xVals.Cells(1).Value Then
+        Linear_Interp = yVals.Cells(1).Value
+        Exit Function
+    End If
+    fract = (xVals.Cells(i).Value - X) / (xVals.Cells(i).Value - xVals.Cells(i - 1).Value)
+    Linear_Interp = fract * yVals.Cells(i - 1).Value + (1 - fract) * yVals.Cells(i).Value
+   
+End Function
+
+Public Sub term_structure_SP()
+    Dim MYSQL As String
+    Dim i, j As Integer
+    Dim curid As String
+    
+    If Cells(2, 19) = "F212" Then
+        curid = "7010112"
+    Else
+        curid = "3010112"
+    End If
+        
+    
+    Call DBconnect
+    
+    MYSQL = " select * from kapdb..BND_H_PricingCmpCurve" & _
+            " where stddate = '" & Cells(1, 19) & "'" & _
+            " and KsdaCode = '" & curid & "'" & _
+            " order by pricingcmpcode asc"
+    gRS.Open MYSQL, gCN
+    
+    Dim Rows As Integer
+    Rows = gRS.RecordCount
+    For i = 1 To Rows - 1
+        'MsgBox gRS.Fields(0)
+        For j = 1 To 14
+            Cells(i * 2, j + 1) = gRS.Fields(j + 2)
+        Next j
+        gRS.MoveNext
+    Next i
+        
+    
+    
+    Call DBdisconnect
+End Sub
+
+Public Sub get_Maturity_Polation()
+    Dim Matu As Integer
+    
+    Matu = Cells(2, 12) * 12
+    Worksheets("Interpolation").Range("A2:A50").ClearContents
+    Worksheets("Interpolation").Range("A2:A50").Font.Bold = False
+    
+    Cells(2, 1) = get_date(Cells(1, 12), 3)
+    Cells(3, 1) = get_date(Cells(1, 12), 6)
+    Cells(4, 1) = get_date(Cells(1, 12), 9)
+    Cells(5, 1) = get_date(Cells(1, 12), 12)
+    Cells(6, 1) = get_date(Cells(1, 12), 18)
+    Cells(7, 1) = get_date(Cells(1, 12), 24)
+    Cells(8, 1) = get_date(Cells(1, 12), 30)
+    Cells(9, 1) = get_date(Cells(1, 12), 36)
+    Cells(10, 1) = get_date(Cells(1, 12), 48)
+    Cells(11, 1) = get_date(Cells(1, 12), 60)
+    Cells(12, 1) = get_date(Cells(1, 12), 84)
+    Cells(13, 1) = get_date(Cells(1, 12), 120)
+    Cells(14, 1) = get_date(Cells(1, 12), 180)
+    Cells(15, 1) = get_date(Cells(1, 12), 240)
+    Cells(16, 1) = get_date(Cells(1, 12), 360)
+    
+    If Matu < 37 Then '2년 이하는 기본으로 뿌리고 3년부터
+        Worksheets("Interpolation").Range("A10:G50").ClearContents
+    ElseIf Matu < 61 Then
+        Worksheets("Interpolation").Range("A12:G50").ClearContents
+    ElseIf Matu < 121 Then
+        Worksheets("Interpolation").Range("A14:G50").ClearContents
+    ElseIf Matu < 241 Then
+        Worksheets("Interpolation").Range("A16:G50").ClearContents
+    End If
+    
+End Sub
+
+Function get_date(stdday As Date, tenor As Integer) As Date
+    Dim y As Integer
+    Dim m As Integer
+    Dim d As Integer
+    
+    y = Year(stdday)
+    m = Month(stdday)
+    d = Day(stdday)
+    
+    get_date = DateAdd("m", tenor, stdday)
+        
+End Function
+
+Public Sub get_bondname()
+    
+    Dim MYSQL As String
+    Dim i As Integer
+    
+    Sheet1.Range("A2:G500").ClearContents
+    Sheet1.Range("A2:G500").Font.Bold = False
+    
+    Call DBconnect '대박이지? 띄어쓰기 안하면 개행이 인식 안되는듯.....ㅎㅎ;;
+    
+    MYSQL = " select b.법정만기일, b.표준코드, b.한글종목명, o.o99KBPYLD, o.O99NICYLD, o.O99KISYLD, o.O99FNYLD from outdb.dbo.OUT99KISNICE o" & _
+            " left outer join bond.dbo.bond11master b" & _
+            " on o.O99BONDID = b.표준코드" & _
+            " where o.O99DATE = '" & Cells(1, 12) & "'" & _
+            " and b.한글종목명 like '%" & Cells(2, 12) & "%'" & _
+            " and b.옵션부사채구분 = 0" & _
+            " and o.O99NICYLD is not NULL" & _
+            " order by b.법정만기일 asc"
+    gRS.Open MYSQL, gCN
+    
+    Dim Rows As Integer
+    Rows = gRS.RecordCount + 1
+    For i = 1 To Rows - 1
+        'MsgBox gRS.Fields(0)
+        Cells(i + 1, 1) = gRS.Fields(0)
+        Cells(i + 1, 2) = gRS.Fields(1)
+        Cells(i + 1, 3) = gRS.Fields(2)
+        Cells(i + 1, 4) = gRS.Fields(3)
+        Cells(i + 1, 5) = gRS.Fields(4)
+        Cells(i + 1, 6) = gRS.Fields(5)
+        Cells(i + 1, 7) = gRS.Fields(6)
+        gRS.MoveNext
+    Next i
+        
+    'Cells(i, 2) = 1
+    
+    
+    Call DBdisconnect
+    
+        
+    
+            
+        
+End Sub
+
+
